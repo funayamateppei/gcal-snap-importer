@@ -15,7 +15,7 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 function App() {
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-      <BrowserRouter basename="/gcal-snap-importer">
+      <BrowserRouter>
         <Routes>
           <Route element={<MainLayout />}>
             <Route path={ROUTES.AUTH} element={<AuthPage />} />
