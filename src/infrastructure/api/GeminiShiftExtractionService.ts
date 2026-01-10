@@ -49,9 +49,10 @@ export class GeminiShiftExtractionService implements IShiftExtractionService {
 
       const genAI = new GoogleGenerativeAI(this.apiKey);
 
-      // モデル名を環境変数から取得（デフォルト: gemini-2.0-flash-thinking-exp-01-21）
-      // 推論機能により、複雑な表の解析精度が向上します
-      const modelName = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.0-flash-thinking-exp-01-21';
+      // モデル名を環境変数から取得（デフォルト: gemini-2.5-flash）
+      // gemini-2.5-flash: 無料枠で利用可能、価格性能比が最も優れたモデル
+      // gemini-3-flash-preview: 最新モデル、推論機能を含む（プレビュー版）
+      const modelName = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash';
 
       const model = genAI.getGenerativeModel({
         model: modelName,
@@ -74,7 +75,7 @@ export class GeminiShiftExtractionService implements IShiftExtractionService {
         },
       ]);
 
-      const response = await result.response;
+      const response = result.response;
       const text = response.text();
 
       const json = JSON.parse(text);
