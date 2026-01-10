@@ -250,6 +250,13 @@ export const PreviewPage = () => {
             const shift = event?.summary as ShiftType | undefined
             const dayOfWeek = (firstDayOfWeek + day - 1) % 7
 
+            // 行番号を計算（0から始まる）
+            const rowIndex = Math.floor(index / 7)
+            // カレンダーの総行数を計算
+            const totalRows = Math.ceil(calendarDays.length / 7)
+            // 下半分の行かどうか判定
+            const isBottomHalf = rowIndex >= Math.floor(totalRows / 2)
+
             return (
               <div
                 key={dateStr}
@@ -286,7 +293,9 @@ export const PreviewPage = () => {
 
                   {/* ドロップダウンメニュー */}
                   {openDropdownDate === dateStr && (
-                    <div className="absolute z-10 mt-1 left-0 min-w-10 bg-white border-2 border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                    <div className={`absolute z-10 left-0 min-w-10 bg-white border-2 border-gray-200 rounded-lg shadow-lg overflow-hidden ${
+                      isBottomHalf ? 'bottom-full mb-1' : 'top-full mt-1'
+                    }`}>
                       {SHIFT_OPTIONS.map((option) => (
                         <button
                           key={option}
