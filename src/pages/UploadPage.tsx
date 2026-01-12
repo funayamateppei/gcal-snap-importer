@@ -10,6 +10,7 @@ import { useTypedNavigate } from '../hooks/useTypedNavigate'
 import { ROUTES } from '../types/routes'
 import type { ShiftEventDTO } from '../application/dto/ShiftEventDTO'
 import type { ShiftEvent } from '../types'
+import { generateDefaultShifts } from '../utils/generateDefaultShifts'
 
 export const UploadPage = () => {
   const navigate = useTypedNavigate()
@@ -53,7 +54,7 @@ export const UploadPage = () => {
    * Convert ShiftEventDTO[] to ShiftEvent[] for Zustand store
    */
   const convertDTOToShiftEvent = useCallback((dtos: ShiftEventDTO[]): ShiftEvent[] => {
-    return dtos.map(dto => ({
+    return dtos.map((dto) => ({
       summary: dto.summary,
       start: dto.start,
       end: dto.end,
@@ -111,6 +112,29 @@ export const UploadPage = () => {
     navigate,
   ])
 
+  const handleSkip = useCallback(() => {
+    if (!selectedYear) {
+      setMessage({ text: '年を選択してください。', type: 'error' })
+      return
+    }
+
+    setMessage(null)
+
+    // Get current month (0-11)
+    const month = new Date().getMonth()
+
+    // Generate default shifts (all "休み")
+    const defaultShiftsDTO = generateDefaultShifts(selectedYear, month)
+
+    // Convert DTOs to Zustand store format
+    const shiftEvents = convertDTOToShiftEvent(defaultShiftsDTO)
+    setEvents(shiftEvents)
+
+    // Navigate to preview page
+    setCurrentStep('preview')
+    navigate(ROUTES.PREVIEW)
+  }, [selectedYear, convertDTOToShiftEvent, setEvents, setMessage, setCurrentStep, navigate])
+
   return (
     <>
       <div>
@@ -147,12 +171,33 @@ export const UploadPage = () => {
               </div>
             </div>
 
+            <div className="flex gap-3">
+              <button
+                onClick={handleSkip}
+                className="flex-1 bg-white text-gray-700 border-2 border-gray-300 py-3 rounded-lg hover:bg-gray-50 transition-all font-medium disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
+                disabled={!selectedYear}
+              >
+                スキップ
+              </button>
+              <button
+                onClick={handleAnalyze}
+                className="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-all font-medium disabled:bg-gray-400 disabled:cursor-not-allowed"
+                disabled={loading}
+              >
+                解析開始
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!imageData && (
+          <div className="mt-6">
             <button
-              onClick={handleAnalyze}
-              className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-all font-medium disabled:bg-gray-400 disabled:cursor-not-allowed"
-              disabled={loading}
+              onClick={handleSkip}
+              className="w-full bg-white text-gray-700 border-2 border-gray-300 py-3 rounded-lg hover:bg-gray-50 transition-all font-medium disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
+              disabled={!selectedYear}
             >
-              解析開始
+              スキップして編集
             </button>
           </div>
         )}
