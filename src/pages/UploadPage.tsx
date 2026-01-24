@@ -16,6 +16,8 @@ export const UploadPage = () => {
   const navigate = useTypedNavigate()
   const [imageData, setImageData] = useState<string | null>(null)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [showJsonInput, setShowJsonInput] = useState(false)
+  const [jsonText, setJsonText] = useState('')
 
   // Use the new DDD/Clean Architecture hook
   const { parseImage, loading, error: parseError } = useParseShiftImage()
@@ -135,6 +137,61 @@ export const UploadPage = () => {
     navigate(ROUTES.PREVIEW)
   }, [selectedYear, convertDTOToShiftEvent, setEvents, setMessage, setCurrentStep, navigate])
 
+  const handleJsonImport = useCallback(() => {
+    setMessage(null)
+
+    // JSON パース
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch {
+      setMessage({ text: 'JSON の形式が正しくありません。', type: 'error' })
+      return
+    }
+
+    // 配列チェック
+    if (!Array.isArray(parsed)) {
+      setMessage({ text: 'JSON は配列形式である必要があります。', type: 'error' })
+      return
+    }
+
+    // 各要素のバリデーション
+    const events: ShiftEvent[] = []
+    for (let i = 0; i < parsed.length; i++) {
+      const item = parsed[i]
+      if (
+        typeof item !== 'object' ||
+        item === null ||
+        typeof item.summary !== 'string' ||
+        typeof item.start !== 'string' ||
+        typeof item.end !== 'string' ||
+        typeof item.allDay !== 'boolean'
+      ) {
+        setMessage({
+          text: `要素 ${i + 1} の形式が正しくありません。summary, start, end, allDay が必要です。`,
+          type: 'error',
+        })
+        return
+      }
+      events.push({
+        summary: item.summary,
+        start: item.start,
+        end: item.end,
+        allDay: item.allDay,
+      })
+    }
+
+    if (events.length === 0) {
+      setMessage({ text: 'インポートするイベントがありません。', type: 'error' })
+      return
+    }
+
+    // ストアに保存して遷移
+    setEvents(events)
+    setCurrentStep('preview')
+    navigate(ROUTES.PREVIEW)
+  }, [jsonText, setEvents, setMessage, setCurrentStep, navigate])
+
   return (
     <>
       <div>
@@ -191,7 +248,7 @@ export const UploadPage = () => {
         )}
 
         {!imageData && (
-          <div className="mt-6">
+          <div className="mt-6 space-y-4">
             <button
               onClick={handleSkip}
               className="w-full bg-white text-gray-700 border-2 border-gray-300 py-3 rounded-lg hover:bg-gray-50 transition-all font-medium disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
@@ -199,6 +256,37 @@ export const UploadPage = () => {
             >
               スキップして編集
             </button>
+
+            <button
+              onClick={() => setShowJsonInput(!showJsonInput)}
+              className="w-full bg-white text-gray-700 border-2 border-gray-300 py-3 rounded-lg hover:bg-gray-50 transition-all font-medium"
+            >
+              {showJsonInput ? 'JSONインポートを閉じる' : 'JSONをインポート'}
+            </button>
+
+            {showJsonInput && (
+              <div className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50 space-y-4">
+                <div>
+                  <label htmlFor="json-input" className="block text-sm font-medium text-gray-700 mb-2">
+                    JSON データ
+                  </label>
+                  <textarea
+                    id="json-input"
+                    value={jsonText}
+                    onChange={(e) => setJsonText(e.target.value)}
+                    placeholder='[{"summary": "早番", "start": "2024-01-01T09:30:00+09:00", "end": "2024-01-01T19:00:00+09:00", "allDay": false}]'
+                    className="w-full h-40 p-3 border border-gray-300 rounded-lg text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <button
+                  onClick={handleJsonImport}
+                  className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-all font-medium disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  disabled={!jsonText.trim()}
+                >
+                  インポート
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
