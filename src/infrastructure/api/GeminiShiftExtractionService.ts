@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, type Schema } from '@google/genai'
+import { GoogleGenAI } from '@google/genai'
 import { z } from 'zod'
 import { Result } from '../../shared/domain/Result'
 import type { IShiftExtractionService } from '../../domain/shift-parsing/service/IShiftExtractionService'
@@ -9,35 +9,7 @@ import { ShiftSymbol } from '../../domain/shift-parsing/value-object/ShiftSymbol
 import { ShiftDate } from '../../domain/shift-parsing/value-object/ShiftDate.vo'
 import { ShiftExtractionFailedError } from '../../domain/shift-parsing/error/ShiftParsingError'
 import { generatePrompt } from '../../utils/prompt'
-
-const shiftEventSchema = z.object({
-  summary: z.string(),
-  start: z.string(),
-  end: z.string(),
-  allDay: z.boolean(),
-})
-
-const geminiSchema: Schema = {
-  type: Type.ARRAY,
-  items: {
-    type: Type.OBJECT,
-    properties: {
-      summary: { type: Type.STRING, description: 'シフトの種類（早番、中番、遅番、休み）' },
-      start: {
-        type: Type.STRING,
-        description:
-          '開始日時（ISO 8601形式、日本標準時 +09:00を含めること。例: 2025-11-04T09:30:00+09:00）',
-      },
-      end: {
-        type: Type.STRING,
-        description:
-          '終了日時（ISO 8601形式、日本標準時 +09:00を含めること。例: 2025-11-04T19:00:00+09:00）',
-      },
-      allDay: { type: Type.BOOLEAN, description: '終日イベントかどうか' },
-    },
-    required: ['summary', 'start', 'end', 'allDay'],
-  },
-}
+import { shiftEventSchema, geminiSchema } from '../../utils/gemini'
 
 /**
  * Gemini API を使用したシフト抽出サービス実装
@@ -57,10 +29,7 @@ export class GeminiShiftExtractionService implements IShiftExtractionService {
 
       const ai = new GoogleGenAI({ apiKey: this.apiKey })
 
-      // モデル名を環境変数から取得（デフォルト: gemini-3-flash）
-      // gemini-3-flash: 最新モデル、無料枠で利用可能（5リクエスト/分、50-100リクエスト/日）
-      // gemini-2.5-flash: 安定版、15リクエスト/分の無料枠
-      const modelName = import.meta.env.VITE_GEMINI_MODEL || 'gemini-3-flash'
+      const modelName = import.meta.env.VITE_GEMINI_MODEL || 'gemini-3-flash-preview'
 
       const prompt = generatePrompt(contextYear ?? new Date().getFullYear())
       const base64Data = image.getPureBase64Data()
