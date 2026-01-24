@@ -1,35 +1,15 @@
-import { GoogleGenerativeAI, SchemaType, type ResponseSchema } from '@google/generative-ai';
-import { z } from 'zod';
-import { Result } from '../../shared/domain/Result';
-import type { IShiftExtractionService } from '../../domain/shift-parsing/service/IShiftExtractionService';
-import { ShiftImage } from '../../domain/shift-parsing/entity/ShiftImage.entity';
-import { ExtractedShiftSchedule } from '../../domain/shift-parsing/entity/ExtractedShiftSchedule.entity';
-import { ExtractedShift } from '../../domain/shift-parsing/entity/ExtractedShift.entity';
-import { ShiftSymbol } from '../../domain/shift-parsing/value-object/ShiftSymbol.vo';
-import { ShiftDate } from '../../domain/shift-parsing/value-object/ShiftDate.vo';
-import { ShiftExtractionFailedError } from '../../domain/shift-parsing/error/ShiftParsingError';
-import { generatePrompt } from '../../utils/prompt';
-
-const shiftEventSchema = z.object({
-  summary: z.string(),
-  start: z.string(),
-  end: z.string(),
-  allDay: z.boolean(),
-});
-
-const geminiSchema: ResponseSchema = {
-  type: SchemaType.ARRAY,
-  items: {
-    type: SchemaType.OBJECT,
-    properties: {
-      summary: { type: SchemaType.STRING, description: 'シフトの種類（早番、中番、遅番、休み）' },
-      start: { type: SchemaType.STRING, description: '開始日時（ISO 8601形式、日本標準時 +09:00を含めること。例: 2025-11-04T09:30:00+09:00）' },
-      end: { type: SchemaType.STRING, description: '終了日時（ISO 8601形式、日本標準時 +09:00を含めること。例: 2025-11-04T19:00:00+09:00）' },
-      allDay: { type: SchemaType.BOOLEAN, description: '終日イベントかどうか' },
-    },
-    required: ['summary', 'start', 'end', 'allDay'],
-  },
-};
+import { GoogleGenAI } from '@google/genai'
+import { z } from 'zod'
+import { Result } from '../../shared/domain/Result'
+import type { IShiftExtractionService } from '../../domain/shift-parsing/service/IShiftExtractionService'
+import { ShiftImage } from '../../domain/shift-parsing/entity/ShiftImage.entity'
+import { ExtractedShiftSchedule } from '../../domain/shift-parsing/entity/ExtractedShiftSchedule.entity'
+import { ExtractedShift } from '../../domain/shift-parsing/entity/ExtractedShift.entity'
+import { ShiftSymbol } from '../../domain/shift-parsing/value-object/ShiftSymbol.vo'
+import { ShiftDate } from '../../domain/shift-parsing/value-object/ShiftDate.vo'
+import { ShiftExtractionFailedError } from '../../domain/shift-parsing/error/ShiftParsingError'
+import { generatePrompt } from '../../utils/prompt'
+import { shiftEventSchema, geminiSchema } from '../../utils/gemini'
 
 /**
  * Gemini API を使用したシフト抽出サービス実装
@@ -39,135 +19,127 @@ export class GeminiShiftExtractionService implements IShiftExtractionService {
 
   async extract(
     image: ShiftImage,
-    contextYear?: number,
+    contextYear?: number
   ): Promise<Result<ExtractedShiftSchedule, ShiftExtractionFailedError>> {
     try {
       // モックデータモードの場合
       if (import.meta.env.VITE_USE_MOCK_DATA === 'true') {
-        return this.extractMock(image);
+        return this.extractMock(image)
       }
 
-      const genAI = new GoogleGenerativeAI(this.apiKey);
+      const ai = new GoogleGenAI({ apiKey: this.apiKey })
 
-      // モデル名を環境変数から取得（デフォルト: gemini-2.5-flash）
-      // gemini-2.5-flash: 無料枠で利用可能、価格性能比が最も優れたモデル
-      // gemini-3-flash-preview: 最新モデル、推論機能を含む（プレビュー版）
-      const modelName = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash';
+      const modelName = import.meta.env.VITE_GEMINI_MODEL || 'gemini-3-flash-preview'
 
-      const model = genAI.getGenerativeModel({
+      const prompt = generatePrompt(contextYear ?? new Date().getFullYear())
+      const base64Data = image.getPureBase64Data()
+
+      const response = await ai.models.generateContent({
         model: modelName,
-        generationConfig: {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  data: base64Data,
+                  mimeType: image.getMimeType() ?? 'image/jpeg',
+                },
+              },
+            ],
+          },
+        ],
+        config: {
           responseMimeType: 'application/json',
           responseSchema: geminiSchema,
         },
-      });
+      })
 
-      const prompt = generatePrompt(contextYear ?? new Date().getFullYear());
-      const base64Data = image.getPureBase64Data();
+      const text = response.text
 
-      const result = await model.generateContent([
-        prompt,
-        {
-          inlineData: {
-            data: base64Data,
-            mimeType: image.getMimeType() ?? 'image/jpeg',
-          },
-        },
-      ]);
+      if (!text) {
+        return Result.fail(new ShiftExtractionFailedError('No text response from Gemini API'))
+      }
 
-      const response = result.response;
-      const text = response.text();
-
-      const json = JSON.parse(text);
-      const events = z.array(shiftEventSchema).parse(json);
+      const json = JSON.parse(text)
+      const events = z.array(shiftEventSchema).parse(json)
 
       // DTO からドメインエンティティに変換
-      const shifts: ExtractedShift[] = [];
+      const shifts: ExtractedShift[] = []
 
       for (const event of events) {
-        const dateStr = event.start.split('T')[0]; // "2025-11-04"
-        const dateResult = ShiftDate.fromString(dateStr);
+        const dateStr = event.start.split('T')[0] // "2025-11-04"
+        const dateResult = ShiftDate.fromString(dateStr)
 
         if (dateResult.isFailure) {
-          console.warn('Invalid date:', dateStr);
-          continue;
+          console.warn('Invalid date:', dateStr)
+          continue
         }
 
         // summary から シフトシンボルを推測（早番→A, 中番→B, 遅番→C）
-        const symbol = this.mapSummaryToSymbol(event.summary);
-        const symbolResult = ShiftSymbol.create(symbol);
+        const symbol = this.mapSummaryToSymbol(event.summary)
+        const symbolResult = ShiftSymbol.create(symbol)
 
         if (symbolResult.isFailure) {
-          console.warn('Invalid symbol:', symbol);
-          continue;
+          console.warn('Invalid symbol:', symbol)
+          continue
         }
 
         const shiftResult = ExtractedShift.create(
           dateResult.value,
           symbolResult.value,
-          JSON.stringify(event),
-        );
+          JSON.stringify(event)
+        )
 
         if (shiftResult.isSuccess) {
-          shifts.push(shiftResult.value);
+          shifts.push(shiftResult.value)
         }
       }
 
       if (shifts.length === 0) {
-        return Result.fail(
-          new ShiftExtractionFailedError('No valid shifts extracted'),
-        );
+        return Result.fail(new ShiftExtractionFailedError('No valid shifts extracted'))
       }
 
-      const scheduleResult = ExtractedShiftSchedule.create(shifts, image.id);
+      const scheduleResult = ExtractedShiftSchedule.create(shifts, image.id)
 
       if (scheduleResult.isFailure) {
-        return Result.fail(
-          new ShiftExtractionFailedError(scheduleResult.error.message),
-        );
+        return Result.fail(new ShiftExtractionFailedError(scheduleResult.error.message))
       }
 
-      return Result.ok(scheduleResult.value);
+      return Result.ok(scheduleResult.value)
     } catch (error) {
       return Result.fail(
         new ShiftExtractionFailedError(
           `Failed to extract shifts: ${(error as Error).message}`,
-          error,
-        ),
-      );
+          error
+        )
+      )
     }
   }
 
   private mapSummaryToSymbol(summary: string): string {
-    if (summary.includes('早番')) return 'A';
-    if (summary.includes('中番')) return 'B';
-    if (summary.includes('遅番')) return 'C';
-    return 'OTHER';
+    if (summary.includes('早番')) return 'A'
+    if (summary.includes('中番')) return 'B'
+    if (summary.includes('遅番')) return 'C'
+    return 'OTHER'
   }
 
   private async extractMock(
-    image: ShiftImage,
+    image: ShiftImage
   ): Promise<Result<ExtractedShiftSchedule, ShiftExtractionFailedError>> {
     // モックデータ（開発用）
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500))
 
     const mockShifts: ExtractedShift[] = [
-      ExtractedShift.create(
-        ShiftDate.create(2026, 1, 11).value,
-        ShiftSymbol.create('A').value,
-      ).value,
-      ExtractedShift.create(
-        ShiftDate.create(2026, 1, 12).value,
-        ShiftSymbol.create('B').value,
-      ).value,
-      ExtractedShift.create(
-        ShiftDate.create(2026, 1, 13).value,
-        ShiftSymbol.create('C').value,
-      ).value,
-    ];
+      ExtractedShift.create(ShiftDate.create(2026, 1, 11).value, ShiftSymbol.create('A').value)
+        .value,
+      ExtractedShift.create(ShiftDate.create(2026, 1, 12).value, ShiftSymbol.create('B').value)
+        .value,
+      ExtractedShift.create(ShiftDate.create(2026, 1, 13).value, ShiftSymbol.create('C').value)
+        .value,
+    ]
 
-    return Result.ok(
-      ExtractedShiftSchedule.create(mockShifts, image.id).value,
-    );
+    return Result.ok(ExtractedShiftSchedule.create(mockShifts, image.id).value)
   }
 }
