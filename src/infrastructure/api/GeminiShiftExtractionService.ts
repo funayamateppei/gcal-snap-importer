@@ -53,6 +53,9 @@ export class GeminiShiftExtractionService implements IShiftExtractionService {
         config: {
           responseMimeType: 'application/json',
           responseSchema: geminiSchema,
+          temperature: 0, // 確定的な出力のため
+          topP: 0.95,
+          topK: 40,
         },
       })
 
